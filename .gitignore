@@ -39,3 +39,8 @@ Thumbs.db
 
 # Session state
 SESSION-STATE.md
+
+# Personal info (keep local, don't push to GitHub)
+USER.md
+IDENTITY.md
+TOOLS.md
