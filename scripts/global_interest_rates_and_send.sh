@@ -24,7 +24,7 @@ fi
 # 步骤1: 生成利率数据
 echo ""
 echo "步骤1: 获取利率数据..."
-python3 scripts/global_interest_rates.py
+python3 python-scripts/financial/global_interest_rates.py
 
 if [ $? -ne 0 ]; then
     echo "❌ 数据获取失败"

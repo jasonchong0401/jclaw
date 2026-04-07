@@ -24,7 +24,7 @@ fi
 # 步骤1: 生成金融数据
 echo ""
 echo "步骤1: 获取金融数据..."
-python3 scripts/financial_data_tavily.py
+python3 python-scripts/financial/financial_data_tavily.py
 
 if [ $? -ne 0 ]; then
     echo "❌ 数据获取失败"
