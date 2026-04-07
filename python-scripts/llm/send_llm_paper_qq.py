@@ -5,9 +5,10 @@
 
 import json
 import subprocess
+import os
 
 # 目标QQ openid
-TARGET_QQ = "13E88D8A498827FBD0B939094DDCADFF"
+TARGET_QQ = os.getenv('QQ_OPENID')
 
 
 def send_to_qq(message: str):

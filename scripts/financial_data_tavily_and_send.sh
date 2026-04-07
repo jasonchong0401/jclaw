@@ -10,6 +10,17 @@ echo "========================================"
 # 进入工作目录
 cd /home/admin/.openclaw/workspace
 
+# 加载环境变量
+if [ -f .env ]; then
+    export $(grep -v '^#' .env | xargs)
+fi
+
+# 检查 QQ OpenID
+if [ -z "$QQ_OPENID" ]; then
+    echo "❌ 未找到 QQ_OPENID 环境变量"
+    exit 1
+fi
+
 # 步骤1: 生成金融数据
 echo ""
 echo "步骤1: 获取金融数据..."
@@ -29,7 +40,7 @@ if [ -f "data/qq_financial_notify.json" ]; then
     message=$(python3 -c "import json; d=json.load(open('data/qq_financial_notify.json')); print(d['message'])")
 
     # 使用 openclaw message 发送
-    openclaw message send --channel qqbot --target "13E88D8A498827FBD0B939094DDCADFF" --message "$message"
+    openclaw message send --channel qqbot --target "${QQ_OPENID}" --message "$message"
 
     if [ $? -eq 0 ]; then
         echo "✅ 消息发送成功"

@@ -10,9 +10,10 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import subprocess
 import re
+import os
 
 # 目标QQ openid
-TARGET_QQ = "13E88D8A498827FBD0B939094DDCADFF"
+TARGET_QQ = os.getenv('QQ_OPENID')
 
 # 头部AI大厂列表
 TOP_COMPANIES = [
