@@ -7,9 +7,16 @@ from twelvedata import TDClient
 import json
 from datetime import datetime
 import time
+import os
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 # API 配置
-API_KEY = "7420db1f72684a8893044c4f4ae54fc5"
+API_KEY = os.getenv('TWELVEDATA_API_KEY')
+if not API_KEY:
+    raise ValueError("未找到 TWELVEDATA_API_KEY 环境变量，请在 .env 文件中配置")
 td = TDClient(apikey=API_KEY)
 
 # 输出文件

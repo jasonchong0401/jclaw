@@ -9,9 +9,16 @@
 import requests
 import json
 from datetime import datetime
+import os
+from dotenv import load_dotenv
+
+# 加载环境变量
+load_dotenv()
 
 # Twelve Data API 配置
-TD_API_KEY = "7420db1f72684a8893044c4f4ae54fc5"
+TD_API_KEY = os.getenv('TWELVEDATA_API_KEY')
+if not TD_API_KEY:
+    raise ValueError("未找到 TWELVEDATA_API_KEY 环境变量，请在 .env 文件中配置")
 
 # 数据配置
 DATA_CONFIG = {

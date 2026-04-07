@@ -44,3 +44,8 @@ SESSION-STATE.md
 USER.md
 IDENTITY.md
 TOOLS.md
+
+# Environment variables (may contain sensitive info)
+.env
+.env.local
+.env.*.local
