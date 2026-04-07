@@ -7,8 +7,10 @@
 ### 1. 创建 `.env` 文件
 在 workspace 根目录创建了 `.env` 文件，包含：
 ```env
-TWELVEDATA_API_KEY=7420db1f72684a8893044c4f4ae54fc5
+TWELVEDATA_API_KEY=your_api_key_here
 FRED_API_KEY=your_fred_api_key_here
+QQ_OPENID=your_qq_openid_here
+GMAIL_PASSWORD=your_gmail_password_here
 ```
 
 ### 2. 更新 `.gitignore`
