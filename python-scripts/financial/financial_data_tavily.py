@@ -1,16 +1,23 @@
 #!/usr/bin/env python3
 """
 获取金融数据脚本（使用 Tavily 的 include-answer 功能）
-直接获取答案，无需抓取网页
+支持前后两天的数据对比和变化百分比
 """
 
 import json
 import re
 import subprocess
-from datetime import datetime
+from datetime import datetime, timedelta
+import os
+from pathlib import Path
 
 # Tavily 脚本路径
 TAVILY_SCRIPT = "/home/admin/.openclaw/workspace/skills/tavily-search/skill/scripts/tavily_search.py"
+
+# 数据目录
+DATA_DIR = Path("/home/admin/.openclaw/workspace/data/financial")
+HISTORY_DIR = DATA_DIR / "history"
+HISTORY_DIR.mkdir(parents=True, exist_ok=True)
 
 # 金融数据配置
 FINANCIAL_DATA = {
@@ -244,16 +251,158 @@ def get_financial_data(symbol: str, config: dict) -> dict:
         }
 
 
+def load_previous_data(date: datetime) -> dict:
+    """加载指定日期的历史数据"""
+    filename = f"financial_data_{date.strftime('%Y-%m-%d')}.json"
+    filepath = HISTORY_DIR / filename
+
+    if not filepath.exists():
+        print(f"  未找到 {date.strftime('%Y-%m-%d')} 的历史数据")
+        return {}
+
+    try:
+        with open(filepath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            print(f"  ✓ 加载 {date.strftime('%Y-%m-%d')} 的历史数据")
+            return data.get('data', {})
+    except Exception as e:
+        print(f"  ✗ 加载历史数据失败: {e}")
+        return {}
+
+
+def save_current_data(date: datetime, data: dict):
+    """保存当前数据到历史文件"""
+    filename = f"financial_data_{date.strftime('%Y-%m-%d')}.json"
+    filepath = HISTORY_DIR / filename
+
+    output_data = {
+        'date': date.strftime('%Y-%m-%d'),
+        'timestamp': datetime.now().isoformat(),
+        'data': data
+    }
+
+    try:
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2)
+        print(f"  ✓ 保存当前数据到 {filename}")
+    except Exception as e:
+        print(f"  ✗ 保存数据失败: {e}")
+
+
+def calculate_change(current: float, previous: float) -> dict:
+    """计算变化百分比"""
+    if previous is None or previous == 0:
+        return {
+            'absolute': None,
+            'percentage': None,
+            'direction': None
+        }
+
+    absolute = current - previous
+    percentage = (absolute / previous) * 100
+
+    direction = 'neutral'
+    if absolute > 0:
+        direction = 'up'
+    elif absolute < 0:
+        direction = 'down'
+
+    return {
+        'absolute': absolute,
+        'percentage': percentage,
+        'direction': direction
+    }
+
+
+def format_change(change: dict, decimal: int = 2) -> str:
+    """格式化变化显示"""
+    if change['percentage'] is None:
+        return ""
+
+    emoji = {
+        'up': '📈',
+        'down': '📉',
+        'neutral': '➡️'
+    }
+
+    direction = change['direction']
+    percentage = change['percentage']
+    absolute = change['absolute']
+
+    # 格式化符号和百分比
+    sign = '+' if percentage > 0 else ''
+    change_str = f"{sign}{percentage:.{decimal}f}%"
+
+    # 如果是价格类（不是百分比），显示绝对值
+    if abs(percentage) < 100:  # 假设变化超过100%的可能是利率等百分比数据
+        return f"{emoji[direction]} {change_str}"
+
+    return f"{emoji[direction]} {change_str}"
+
+
+def compare_with_previous(current_data: dict, previous_data: dict) -> dict:
+    """对比当前数据和前一天数据"""
+    comparison = {}
+
+    for symbol, current in current_data.items():
+        if not current['success']:
+            comparison[symbol] = {
+                'symbol': symbol,
+                'name': current['name'],
+                'current': None,
+                'previous': None,
+                'change': None,
+                'success': False
+            }
+            continue
+
+        prev_record = previous_data.get(symbol, {})
+
+        if prev_record.get('success') and 'price' in prev_record:
+            prev_price = prev_record['price']
+            curr_price = current['price']
+
+            change = calculate_change(curr_price, prev_price)
+
+            comparison[symbol] = {
+                'symbol': symbol,
+                'name': current['name'],
+                'current': curr_price,
+                'previous': prev_price,
+                'change': change,
+                'unit': current['unit'],
+                'decimal': FINANCIAL_DATA[symbol]['decimal'],
+                'success': True
+            }
+        else:
+            comparison[symbol] = {
+                'symbol': symbol,
+                'name': current['name'],
+                'current': current['price'],
+                'previous': None,
+                'change': None,
+                'unit': current['unit'],
+                'decimal': FINANCIAL_DATA[symbol]['decimal'],
+                'success': True
+            }
+
+    return comparison
+
+
 def main():
     """主函数"""
+    current_date = datetime.now()
+    previous_date = current_date - timedelta(days=1)
+
     results = {
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': current_date.isoformat(),
+        'date': current_date.strftime('%Y-%m-%d'),
         'data': {}
     }
 
     print("="*80)
     print("获取金融数据（使用 Tavily AI）")
-    print(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"时间: {current_date.strftime('%Y-%m-%d %H:%M:%S')}")
     print("="*80)
 
     # 获取所有数据
@@ -281,28 +430,62 @@ def main():
             failed_count += 1
             print(f"  ✗ {data['name']}: {data.get('error', '失败')}")
 
-    # 保存完整结果
-    output_file = '/home/admin/.openclaw/workspace/data/financial_data_tavily.json'
-    with open(output_file, 'w', encoding='utf-8') as f:
-        json.dump(results, f, ensure_ascii=False, indent=2)
+    # 保存当前数据到历史文件
+    save_current_data(current_date, results['data'])
 
-    # 生成通知消息
+    # 加载前一天的数据
+    print("\n" + "="*80)
+    print("加载历史数据")
+    print("="*80)
+    previous_data = load_previous_data(previous_date)
+
+    # 对比数据
+    comparison = compare_with_previous(results['data'], previous_data)
+
+    # 打印对比结果
+    if comparison:
+        print("\n" + "="*80)
+        print("数据对比（今日 vs 昨日）")
+        print("="*80)
+
+        for symbol, comp in comparison.items():
+            if comp['success'] and comp['change'] and comp['change']['percentage'] is not None:
+                current = comp['current']
+                previous = comp['previous']
+                change = comp['change']
+                unit = comp['unit']
+                decimal = comp['decimal']
+
+                change_str = format_change(change, decimal)
+                print(f"  {comp['name']}: {previous:.{decimal}f}{unit} → {current:.{decimal}f}{unit} {change_str}")
+            elif comp['success']:
+                print(f"  {comp['name']}: {comp['current']:.{comp['decimal']}f}{comp['unit']} (无昨日数据)")
+            else:
+                print(f"  {comp['name']}: 数据获取失败")
+
+    # 生成通知消息（带对比）
     message = f"""📊 金融数据报告
 ━━━━━━━━━━━━━━━━━━
-🕐 更新时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+🕐 更新时间: {current_date.strftime('%Y-%m-%d %H:%M:%S')}
 📡 数据源: Tavily AI 搜索
 
 【实时数据】
 """
 
-    for symbol, data in results['data'].items():
-        if data['success']:
-            price = data['price']
-            unit = data['unit']
-            decimal = FINANCIAL_DATA[symbol]['decimal']
-            message += f"✓ {data['name']}: {price:.{decimal}f}{unit}\n"
+    for symbol, comp in comparison.items():
+        if comp['success']:
+            current = comp['current']
+            unit = comp['unit']
+            decimal = comp['decimal']
+
+            # 添加变化趋势
+            if comp['change'] and comp['change']['percentage'] is not None:
+                change_str = format_change(comp['change'], decimal)
+                message += f"{comp['name']}: {current:.{decimal}f}{unit} {change_str}\n"
+            else:
+                message += f"✓ {comp['name']}: {current:.{decimal}f}{unit}\n"
         else:
-            message += f"✗ {data['name']}: {data.get('error', '失败')}\n"
+            message += f"✗ {comp['name']}: 获取失败\n"
 
     if success_count > 0:
         message += f"\n✅ 成功获取: {success_count} 项"
@@ -311,18 +494,26 @@ def main():
 
     message += "\n━━━━━━━━━━━━━━━━━━"
 
+    # 保存完整结果
+    output_file = '/home/admin/.openclaw/workspace/data/financial_data_tavily.json'
+    with open(output_file, 'w', encoding='utf-8') as f:
+        json.dump(results, f, ensure_ascii=False, indent=2)
+
     # 保存通知消息
     notify_file = '/home/admin/.openclaw/workspace/data/qq_financial_notify.json'
     notify_data = {
-        'timestamp': datetime.now().isoformat(),
+        'timestamp': current_date.isoformat(),
+        'date': current_date.strftime('%Y-%m-%d'),
         'message': message,
-        'results': results
+        'results': results,
+        'comparison': comparison
     }
     with open(notify_file, 'w', encoding='utf-8') as f:
         json.dump(notify_data, f, ensure_ascii=False, indent=2)
 
     print(f"\n完整数据: {output_file}")
     print(f"QQ通知: {notify_file}")
+    print(f"历史数据目录: {HISTORY_DIR}")
 
     print("\n📱 消息预览:")
     print("-" * 80)
