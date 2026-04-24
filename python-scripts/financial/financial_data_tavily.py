@@ -80,32 +80,58 @@ FINANCIAL_DATA = {
 }
 
 
-def get_tavily_answer(query: str) -> dict:
-    """使用 Tavily 获取答案"""
-    try:
-        cmd = [
-            "python3", TAVILY_SCRIPT,
-            "--query", query,
-            "--max-results", "3",
-            "--include-answer",
-            "--format", "raw"
-        ]
-        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
-        output = result.stdout.decode('utf-8', errors='ignore')
+def get_tavily_answer(query: str, max_retries: int = 3) -> dict:
+    """使用 Tavily 获取答案（带重试）"""
+    for attempt in range(max_retries):
+        try:
+            cmd = [
+                "python3", TAVILY_SCRIPT,
+                "--query", query,
+                "--max-results", "3",
+                "--include-answer",
+                "--format", "raw"
+            ]
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+            output = result.stdout.decode('utf-8', errors='ignore')
 
-        if result.returncode == 0 and output:
-            try:
-                data = json.loads(output)
-                return {
-                    'success': True,
-                    'answer': data.get('answer', ''),
-                    'results': data.get('results', [])
-                }
-            except json.JSONDecodeError:
-                return {'success': False, 'error': 'Invalid JSON'}
-        return {'success': False, 'error': 'Tavily request failed'}
-    except Exception as e:
-        return {'success': False, 'error': str(e)}
+            if result.returncode == 0 and output:
+                try:
+                    data = json.loads(output)
+                    return {
+                        'success': True,
+                        'answer': data.get('answer', ''),
+                        'results': data.get('results', [])
+                    }
+                except json.JSONDecodeError:
+                    if attempt < max_retries - 1:
+                        print(f"    重试 {attempt + 1}/{max_retries}...")
+                        import time
+                        time.sleep(2)
+                        continue
+                    return {'success': False, 'error': 'Invalid JSON'}
+            else:
+                if attempt < max_retries - 1:
+                    print(f"    请求失败，重试 {attempt + 1}/{max_retries}...")
+                    import time
+                    time.sleep(2)
+                    continue
+                return {'success': False, 'error': 'Tavily request failed'}
+        except subprocess.TimeoutExpired:
+            if attempt < max_retries - 1:
+                print(f"    超时，重试 {attempt + 1}/{max_retries}...")
+                import time
+                time.sleep(3)
+                continue
+            return {'success': False, 'error': 'Timeout'}
+        except Exception as e:
+            if attempt < max_retries - 1:
+                print(f"    异常: {e}，重试 {attempt + 1}/{max_retries}...")
+                import time
+                time.sleep(2)
+                continue
+            return {'success': False, 'error': str(e)}
+
+    return {'success': False, 'error': 'Max retries exceeded'}
 
 
 def extract_price_from_answer(answer: str, pattern: str) -> float:
@@ -122,6 +148,17 @@ def extract_price_from_answer(answer: str, pattern: str) -> float:
         if matches:
             # 取第一个匹配
             value_str = matches[0].replace(',', '')
+
+            # 清理末尾的小数点和其他非数字字符
+            value_str = re.sub(r'[^\d.]$', '', value_str)  # 移除末尾的非数字字符
+            value_str = re.sub(r'\.$', '', value_str)  # 移除末尾的小数点
+            value_str = re.sub(r'^\.', '', value_str)  # 移除开头的小数点
+
+            # 确保只有一个小数点
+            if value_str.count('.') > 1:
+                parts = value_str.split('.')
+                value_str = parts[0] + '.' + ''.join(parts[1:])
+
             value = float(value_str)
 
             # 验证合理性
@@ -182,6 +219,8 @@ def get_financial_data(symbol: str, config: dict) -> dict:
     if price is None:
         results = response.get('results', [])
         price = extract_price_from_results(results, config['pattern'])
+        if price:
+            print(f"    ✓ 从搜索结果提取成功: {price:.{config['decimal']}f}{config['unit']}")
 
     if price:
         print(f"    ✓ 成功: {price:.{config['decimal']}f}{config['unit']}")
@@ -290,6 +329,15 @@ def main():
     print(message)
     print("-" * 80)
 
+    # 如果至少有一个成功，返回0，否则返回1
+    if success_count > 0:
+        print(f"\n✅ 至少获取了 {success_count} 项数据，继续发送")
+        return 0
+    else:
+        print(f"\n❌ 所有数据获取失败，跳过发送")
+        return 1
+
 
 if __name__ == '__main__':
-    main()
+    exit_code = main()
+    exit(exit_code)

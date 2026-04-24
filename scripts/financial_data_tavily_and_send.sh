@@ -21,13 +21,17 @@ if [ -z "$QQ_OPENID" ]; then
     exit 1
 fi
 
+echo "QQ OpenID: $QQ_OPENID"
+
 # 步骤1: 生成金融数据
 echo ""
 echo "步骤1: 获取金融数据..."
 python3 python-scripts/financial/financial_data_tavily.py
 
-if [ $? -ne 0 ]; then
-    echo "❌ 数据获取失败"
+DATA_EXIT_CODE=$?
+
+if [ $DATA_EXIT_CODE -ne 0 ]; then
+    echo "❌ 所有数据获取失败，退出任务"
     exit 1
 fi
 
@@ -35,21 +39,68 @@ fi
 echo ""
 echo "步骤2: 发送到QQ..."
 
+# 使用 Python 发送消息（确保环境变量正确传递）
+python3 <<'PYTHON_SCRIPT'
+import subprocess
+import os
+import json
+import sys
+
+# 确保环境变量已设置
+if 'QQ_OPENID' not in os.environ:
+    # 从 .env 文件读取
+    env_file = '/home/admin/.openclaw/workspace/.env'
+    if os.path.exists(env_file):
+        with open(env_file) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key] = value
+
+qq_openid = os.environ.get('QQ_OPENID')
+print("QQ OpenID: {}".format(qq_openid))
+
 # 读取通知文件
-if [ -f "data/qq_financial_notify.json" ]; then
-    message=$(python3 -c "import json; d=json.load(open('data/qq_financial_notify.json')); print(d['message'])")
+notify_file = '/home/admin/.openclaw/workspace/data/qq_financial_notify.json'
+with open(notify_file, 'r', encoding='utf-8') as f:
+    notify_data = json.load(f)
 
-    # 使用 openclaw message 发送
-    openclaw message send --channel qqbot --target "${QQ_OPENID}" --message "$message"
+message = notify_data['message']
+print("消息长度: {} 字符".format(len(message)))
 
-    if [ $? -eq 0 ]; then
-        echo "✅ 消息发送成功"
-    else
-        echo "❌ 消息发送失败"
-        exit 1
-    fi
+# 调用 OpenClaw message CLI
+result = subprocess.run([
+    '/opt/openclaw/node_modules/.pnpm/node_modules/.bin/openclaw',
+    'message', 'send',
+    '--channel', 'qqbot',
+    '--target', qq_openid,
+    '--message', message
+], stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+
+# 输出结果
+stdout = result.stdout.decode('utf-8', errors='ignore')
+if stdout:
+    print(stdout)
+
+stderr = result.stderr.decode('utf-8', errors='ignore')
+if stderr:
+    print("错误输出:", stderr, file=sys.stderr)
+
+if result.returncode == 0:
+    print("✅ 消息发送成功")
+    sys.exit(0)
+else:
+    print("❌ 消息发送失败，返回码: {}".format(result.returncode))
+    sys.exit(1)
+PYTHON_SCRIPT
+
+SEND_EXIT_CODE=$?
+
+if [ $SEND_EXIT_CODE -eq 0 ]; then
+    echo "✅ 消息发送成功"
 else
-    echo "❌ 未找到通知文件"
+    echo "❌ 消息发送失败"
     exit 1
 fi
 
