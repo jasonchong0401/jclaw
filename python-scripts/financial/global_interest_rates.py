@@ -389,56 +389,61 @@ def main():
     # 按利率排序
     success_rates.sort(reverse=True, key=lambda x: x[0])
 
-    # 生成报告（改进格式）
-    message = f"""🌍 全球货币市场利率报告
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-🕐 更新时间: {current_date.strftime('%Y-%m-%d %H:%M:%S')}
-📡 数据源:   Tavily AI 搜索
+    # 生成报告（更简洁的格式）
+    message = f"""🌍 全球利率 · {current_date.strftime('%m/%d %H:%M')}
+─────────────────────────────
 
-【今日利率 vs 昨日】
+【今日 vs 昨日】
 """
 
-    # 按固定顺序显示，加上对比
+    # 按固定顺序显示，突出变化（有变化的排在前面）
     order = ['CN', 'US', 'EU', 'JP', 'CA', 'AU']
+    # 收集所有数据并按是否有变化分组
+    with_change = []
+    without_change = []
     for code in order:
         if code in comparison and comparison[code]['success']:
             comp = comparison[code]
             curr = comp['current']
 
-            # 计算最长名称用于对齐
-            name_with_flag = f"{comp['flag']} {comp['name']}"
-            rate_str = f"{curr:.2f}%"
-
-            # 添加变化
+            # 添加变化（重点突出）
             if comp['change'] and comp['change']['percentage'] is not None:
-                change_str = format_change(comp['change'], 3)
-                message += f"{name_with_flag:20s} {rate_str:>8s}  {change_str}\n"
+                change = comp['change']
+                # 格式化变化量（更简洁）
+                if abs(change['absolute']) >= 0.01:  # 变化≥0.01才显示
+                    if change['direction'] == 'up':
+                        change_str = f"📈 +{change['absolute']:.2f}pp"
+                    else:
+                        change_str = f"📉 {change['absolute']:.2f}pp"
+                    with_change.append((comp, curr, change_str))
+                else:
+                    without_change.append((comp, curr, "➡️"))
             else:
-                message += f"{name_with_flag:20s} {rate_str:>8s}  (无昨日数据)\n"
+                without_change.append((comp, curr, "[首次]"))
         elif code in results['data']:
             data = results['data'][code]
-            message += f"{data['flag']} {data['name']:15s}: 获取失败\n"
+            without_change.append((None, None, f"• {data['flag']} {data['name']:4s}  - [获取失败]"))
 
-    # 排名（改进格式）
+    # 先显示有变化的，再显示无变化的
+    for comp, curr, change_str in with_change:
+        message += f"• {comp['flag']} {comp['name']:4s}  {curr:5.2f}%  {change_str}\n"
+
+    for item in without_change:
+        if item[0] is None:
+            message += f"{item[2]}\n"
+        else:
+            comp, curr, change_str = item
+            message += f"• {comp['flag']} {comp['name']:4s}  {curr:5.2f}%  {change_str}\n"
+
+    # 排名（简化格式）
     if success_rates:
-        message += "\n【利率排名】\n"
-        for i, (rate, flag, name) in enumerate(success_rates, 1):
-            rank_str = f"{i}."
-            name_str = f"{flag} {name}"
-            rate_str = f"{rate:.2f}%"
+        message += "\n【利率 TOP 3】\n"
+        for i, (rate, flag, name) in enumerate(success_rates[:3], 1):
+            medals = ['🥇', '🥈', '🥉']
+            message += f"{medals[i-1]} {flag} {name:4s}  {rate:.2f}%\n"
 
-            medal = ""
-            if i == 1:
-                medal = " 🥇"
-            elif i == 2:
-                medal = " 🥈"
-            elif i == 3:
-                medal = " 🥉"
-
-            message += f"{rank_str} {name_str:15s} {rate_str:>8s}{medal}\n"
-
-    message += "\n💡 数据已保存到数据库"
-    message += "\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    message += f"\n数据源: Tavily AI | 更新: {current_date.strftime('%H:%M')}"
+    message += "\n─────────────────────────────"
 
     # 保存完整结果
     output_file = '/home/admin/.openclaw/workspace/data/global_interest_rates.json'
